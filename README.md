@@ -1,3 +1,5 @@
+My mods for GY II2CLCD backpack and C++ify the code a little.
+
 lcdpcf8574
 ==========
 
