@@ -21,14 +21,7 @@
  ***********************************************************************
  */
 
-#include <stdio.h>
-#include <time.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <signal.h>
-#include <wiringPiI2C.h>
+#include <stdint.h>
 
 #ifndef LCDPCF8574_H
 #define LCDPCF8574_H
@@ -36,11 +29,11 @@
 // initializes objects and lcd
 
 // LCD Commands
-unsigned int LCD_CLEARDISPLAY = 0x01;
-unsigned int LCD_RETURNHOME = 0x02;
-unsigned int LCD_ENTRYMODESET = 0x04;
-unsigned int LCD_DISPLAYCONTROL = 0x08;
-unsigned int LCD_CURSORSHIFT = 0x10;
+const unsigned int LCD_CLEARDISPLAY = 0x01;
+const unsigned int LCD_RETURNHOME = 0x02;
+const unsigned int LCD_ENTRYMODESET = 0x04;
+const unsigned int LCD_DISPLAYCONTROL = 0x08;
+const unsigned int LCD_CURSORSHIFT = 0x10;
 unsigned int LCD_FUNCTIONSET = 0x20;
 unsigned int LCD_SETCGRAMADDR = 0x40;
 unsigned int LCD_SETDDRAMADDR = 0x80;
@@ -76,83 +69,51 @@ unsigned int LCD_5x8DOTS = 0x00;
 // flags for backlight control
 // invert backlight flag since LEDs are common anode
 unsigned int LCD_BACKLIGHT = 0x00;
-unsigned int LCD_NOBACKLIGHT = 0x08;
+unsigned int LCD_NOBACKLIGHT = 1 << 7;
+unsigned int EN = 1 << 4;  // Enable bit
+unsigned int RW = 1 << 5;  // Read/Write bit
+unsigned int RS = 1 << 6;  // Register select bit
 
-unsigned int EN = 0x04;  // Enable bit
-unsigned int RW = 0x02;  // Read/Write bit
-unsigned int RS = 0x01;  // Register select bit
-
-int blFlag;
 
 /*
-pinout for 20x4 LCD via PCF8574AN:
+pinout for 20x4 LCD via GY-IICLCD PCF8574:
 ----------
-0x80    P7 -  - D7
-0x40    P6 -  - D6
-0x20    P5 -  - D5
-0x10    P4 -  - D4
------------
-0x08    P3 -  - BL   Backlight (LCD has 3 RGB LEDs - common anode)
-0x04    P2 -  - EN   Starts Data read/write
-0x02    P1 -  - RW   low: write, high: read
-0x01    P0 -  - RS   Register Select: 0: Instruction Register (IR) (AC when read), 1: data register (DR)
+0x80    P7 - Backlight
+0x40    P6 - RS  Register select  0-Instruction  1=Data
+0x20    P5 - RW
+0x10    P4 - EN  Enable (data clocked in on falling edge)  
+
+0x08    P3 -  D3
+0x04    P2 -  D2
+0x02    P1 -  D1
+0x01    P0 -  D0
 */
 
 
-typedef struct CustomFontsStruct{
-	unsigned int array[8][8];
-}CustomFontsStruct;
-typedef struct CustomFontStruct{
-	unsigned int array[8];
-}CustomFontStruct;
-
-class lcdpcf8574 {
+class lcd 
+{
 private:
 	int fd;
-	lcdpcf8574(){}; // private default constructor
+        int blFlag;
+	lcd(); // private default constructor
 public:
-	lcdpcf8574(int addr, int onetimeinit, int wait, int backlight); // public constructor with address for I²C device
-	void lcd_strobe();
-	void lcd_write(int cmd);
-	void lcd_load_custom_font(int addr, unsigned int font[8]);
-	void lcd_write_char(int charvalue);
-	void lcd_putc(int c);
+	lcd(int addr); // public constructor with address for I²C device
+	void backlightOn(bool on);
+	void clear();
+
+        void strobe();
+
+	void write_cmd(uint8_t cmd);
+	void write_data(uint8_t charvalue);
+
 	void _setDDRAMAddress(int line, int col);
-	void lcd_puts(char string[20], int line, int col);
-	void lcd_put_custom(int c, int line, int col);
-	void lcd_clear();
-	void loadcustomfonts(CustomFontsStruct *fonts);
-	void loadcustomfont(CustomFontStruct *font, int addr);
+	void putsAt(const char s[20], int line, int col);
+	void putAt(uint8_t c, int line, int col);
+
+	void load_custom_font(int addr, const uint8_t font[8]);
+	void loadcustomfonts(const unsigned char fonts[8][8]);
+	void loadcustomfont(const unsigned char font[8], int addr);
 };
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-lcdpcf8574 *lcdpcf8574instance;
-
-extern void new_lcdpcf8574(int addr, int onetimeinit, int wait, int backlight) {
-	lcdpcf8574instance = new lcdpcf8574(addr, onetimeinit, wait, backlight);
-}
-extern void lcdpcf8574_loadcustomfonts(CustomFontsStruct *fonts) {
-	lcdpcf8574instance->loadcustomfonts(fonts);
-}
-extern void lcdpcf8574_loadcustomfont(CustomFontStruct *font, int addr) {
-	lcdpcf8574instance->loadcustomfont(font, addr);
-}
-extern void lcdpcf8574_lcd_puts(char string[20], int line, int col) {
-	lcdpcf8574instance->lcd_puts(string, line, col);
-}
-
-extern void lcdpcf8574_lcd_put_custom(int c, int line, int col) {
-	lcdpcf8574instance->lcd_put_custom(c, line, col);
-}
-extern void lcdpcf8574_lcd_clear() {
-	lcdpcf8574instance->lcd_clear();
-}
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

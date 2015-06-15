@@ -23,130 +23,149 @@
 
 #include "lcdpcf8574.h"
 
+#include <unistd.h>
+#include <cstdint>
+#include <cstring>
+#include <stdexcept>
+
+#include <wiringPiI2C.h>
+
+
 // lcdpcf8574 constructor
-lcdpcf8574::lcdpcf8574(int addr, int onetimeinit, int wait, int backlight) {
-	if ((fd = wiringPiI2CSetup(addr)) < 0) {
-		printf("error initializing I2C device PCF8574, %d", fd);
+lcd::lcd(int addr)
+  : fd(wiringPiI2CSetup(addr))
+  , blFlag(LCD_BACKLIGHT)
+{
+	if (fd < 0)
+        {
+		throw std::runtime_error("error initializing I2C device PCF8574");
 	}
 
 	int displayshift = (LCD_CURSORMOVE | LCD_MOVERIGHT);
 	int displaymode = (LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT);
 	int displaycontrol = (LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF);
 
-	blFlag = backlight == 0 ? LCD_NOBACKLIGHT : LCD_BACKLIGHT;
+	wiringPiI2CWrite(fd, 0x20);
+	strobe();
+	write_cmd(LCD_FUNCTIONSET | LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS);
+	write_cmd(LCD_DISPLAYCONTROL | displaycontrol);
+	write_cmd(LCD_ENTRYMODESET | displaymode);
 
-	if (onetimeinit > 0) {
-		wiringPiI2CWrite(fd, 0x20);
-		lcdpcf8574::lcd_strobe();
-		if (wait == 1)
-			usleep(10000);
-		lcdpcf8574::lcd_write(
-				LCD_FUNCTIONSET | LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS);
-	}
+	write_cmd(LCD_CLEARDISPLAY);
+	write_cmd(LCD_CURSORSHIFT | displayshift);
+	write_cmd(LCD_RETURNHOME);
+}
 
-	lcdpcf8574::lcd_write(LCD_DISPLAYCONTROL | displaycontrol);
-	lcdpcf8574::lcd_write(LCD_ENTRYMODESET | displaymode);
-
-	lcdpcf8574::lcd_write(LCD_CLEARDISPLAY);
-	lcdpcf8574::lcd_write(LCD_CURSORSHIFT | displayshift);
-	lcdpcf8574::lcd_write(LCD_RETURNHOME);
+void lcd::backlightOn(bool on)
+{
+blFlag = on ? LCD_BACKLIGHT : LCD_NOBACKLIGHT; 
+strobe();
 }
 
 // clocks EN to latch command
-void lcdpcf8574::lcd_strobe() {
-	wiringPiI2CWrite(fd, wiringPiI2CRead(fd) | EN | LCD_BACKLIGHT);
-	wiringPiI2CWrite(fd, (wiringPiI2CRead(fd) | LCD_BACKLIGHT) & 0xFB);
+void lcd::strobe() 
+{
+	wiringPiI2CWrite(fd, wiringPiI2CRead(fd) | EN );
+	wiringPiI2CWrite(fd, (wiringPiI2CRead(fd) ) & ~EN);
+}
+
+
+unsigned char highnib(unsigned char data)
+{
+    return (data >> 4) & 0xf;
+}
+unsigned char lownib(unsigned char data)
+{
+    return data & 0xf;
 }
 
 //write data to lcd in 4 bit mode, 2 nibbles
 //high nibble is sent first
-void lcdpcf8574::lcd_write(int cmd) {
+void lcd::write_cmd(uint8_t cmd) 
+{
 //	write high nibble
-	wiringPiI2CWrite(fd, (cmd & 0xF0) | blFlag);
+	wiringPiI2CWrite(fd, highnib(cmd) | blFlag);
 	wiringPiI2CRead(fd);
-	lcdpcf8574::lcd_strobe();
+	strobe();
 
 //	then low nibble
-	wiringPiI2CWrite(fd, (cmd << 4) | blFlag);
+	wiringPiI2CWrite(fd, lownib(cmd) | blFlag);
 	wiringPiI2CRead(fd);
-	lcdpcf8574::lcd_strobe();
+	strobe();
 	wiringPiI2CWrite(fd, blFlag);
 }
 
 //write a character to lcd (or character rom) 0x09: backlight | RS=DR
 //works as expected
-void lcdpcf8574::lcd_write_char(int charvalue){
+void lcd::write_data(uint8_t charvalue)
+{
 	int controlFlag = blFlag | RS;
 //	write high nibble
-	wiringPiI2CWrite(fd, (controlFlag | (charvalue & 0xF0)));
-	lcdpcf8574::lcd_strobe();
+	wiringPiI2CWrite(fd, (controlFlag & 0xf0)| highnib(charvalue) );
+	strobe();
 
 //	write low nibble
-	wiringPiI2CWrite(fd, (controlFlag | (charvalue << 4)));
-	lcdpcf8574::lcd_strobe();
+	wiringPiI2CWrite(fd, (controlFlag & 0xf0) | lownib(charvalue) );
+	strobe();
 	wiringPiI2CWrite(fd, blFlag);
 }
 
-//put char function
-void lcdpcf8574::lcd_putc(int c){
-	lcdpcf8574::lcd_write_char(c);
-}
-
 // load custom characters
-void lcdpcf8574::lcd_load_custom_font(int addr, unsigned int font[8]){
-	lcdpcf8574::lcd_write(addr*8 + LCD_SETCGRAMADDR);
+void lcd::load_custom_font(int addr, const unsigned char font[8])
+{
+	write_cmd(addr*8 + LCD_SETCGRAMADDR);
 	int x;
-	for(x=0;x<8;x++){
-		lcdpcf8574::lcd_write_char(font[x]);
+	for(x=0;x<8;x++)
+	{
+		write_data(font[x]);
 	}
 }
 
-void lcdpcf8574::_setDDRAMAddress(int line, int col){
+void lcd::_setDDRAMAddress(int line, int col)
+{
+  if (line <0 || line >3) throw std::runtime_error("Invalid line value");
+  static unsigned char offsets[4] = { 0x00, 0x40, 0x14, 0x54};
 //we write to the Data Display RAM (DDRAM)
-	if(line == 0)
-		lcdpcf8574::lcd_write(LCD_SETDDRAMADDR | (0x00 + col));
-	if(line == 1)
-		lcdpcf8574::lcd_write(LCD_SETDDRAMADDR | (0x40 + col));
-	if(line == 2)
-		lcdpcf8574::lcd_write(LCD_SETDDRAMADDR | (0x14 + col));
-	if(line == 3)
-		lcdpcf8574::lcd_write(LCD_SETDDRAMADDR | (0x54 + col));
+    write_cmd(LCD_SETDDRAMADDR | (offsets[line] + col));
 }
 
 //put string function
-void lcdpcf8574::lcd_puts(char string[20], int line, int col){
-	lcdpcf8574::_setDDRAMAddress(line, col);
-	int len = strlen(string);
-	int i;
-	for(i = 0; i < len; i++){
-		lcdpcf8574::lcd_putc(string[i]);
+void lcd::putsAt(const char string[20], int line, int col)
+{
+	_setDDRAMAddress(line, col);
+	const int len = strlen(string);
+	for(int i = 0; i < len; i++)
+        {
+	    write_data(string[i]);
 	}
 }
 
-void lcdpcf8574::lcd_put_custom(int c, int line, int col){
-	lcdpcf8574::_setDDRAMAddress(line, col);
-	lcdpcf8574::lcd_putc(c);
+void lcd::putAt(uint8_t c, int line, int col)
+{
+	_setDDRAMAddress(line, col);
+	write_data(c);
 }
 
 
 //clear lcd and set to home
-void lcdpcf8574::lcd_clear(){
-//	self.lcd_write(0x10)
-	lcdpcf8574::lcd_write(LCD_CLEARDISPLAY);
-//	self.lcd_write(0x20)
-	lcdpcf8574::lcd_write(LCD_RETURNHOME);
+void lcd::clear()
+{
+	write_cmd(LCD_CLEARDISPLAY);
+	write_cmd(LCD_RETURNHOME);
 }
 
 // load 8 custom fonts to all available CGRAM locations
-void lcdpcf8574::loadcustomfonts(CustomFontsStruct *fonts) {
-	int x;
-	for (x = 0; x < 8; x++) {
-		lcdpcf8574::lcd_load_custom_font(x, fonts->array[x]);
+void lcd::loadcustomfonts(const unsigned char fonts[8][8]) 
+{
+	for (int x = 0; x < 8; x++) 
+        {
+		load_custom_font(x, fonts[x]);
 	}
 }
 
-void lcdpcf8574::loadcustomfont(CustomFontStruct *font, int addr){
-	lcdpcf8574::lcd_load_custom_font(addr, font->array);
+void lcd::loadcustomfont(const unsigned char font[8], int addr)
+{
+	load_custom_font(addr, font);
 }
 
 

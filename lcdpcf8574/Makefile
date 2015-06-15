@@ -18,9 +18,9 @@
 #################################################################################
 
 lcdpcf8574test: liblcdpcf8574.so lcdpcf8574test.o
-	$(CXX) -Wall -L. lcdpcf8574test.cpp -lrt -llcdpcf8574 -lwiringPi -o lcdpcf8574test.o 
+	$(CXX) -std=c++11 -Wall -L. lcdpcf8574test.cpp -lrt -llcdpcf8574 -lwiringPi -o lcdpcf8574test.o 
 liblcdpcf8574.so: lcdpcf8574.cpp
-	$(CXX) -fPIC -c lcdpcf8574.cpp -o lcdpcf8574.o
+	$(CXX) -std=c++11 -fPIC -c lcdpcf8574.cpp -o lcdpcf8574.o
 	$(CXX) -shared -Wl,-soname,liblcdpcf8574.so.1 -lwiringPi -o liblcdpcf8574.so.1.0 lcdpcf8574.o
 	ln -sf liblcdpcf8574.so.1.0 liblcdpcf8574.so
 	ln -sf liblcdpcf8574.so.1.0 liblcdpcf8574.so.1
